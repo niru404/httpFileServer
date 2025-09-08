@@ -76,9 +76,46 @@ func downloadFile(w http.ResponseWriter, r *http.Request) {
 	io.Copy(w, f)
 }
 
+func listAll(w http.ResponseWriter, r *http.Request) {
+	file, err := os.ReadDir("./httpServer/")
+	if err != nil {
+		http.Error(w, "Error while fetching Directory", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html")
+	fmt.Fprintln(w, "<h2>available files are listed below</h2>")
+
+	for _, f := range file {
+	name := f.Name()
+	fmt.Fprintf(w, `<li><a href="/download?file=%s">%s</a></li>`, name, name)
+	}
+
+	fmt.Fprintln(w, "</ul>")
+}
+
+func deleteFile(w http.ResponseWriter, r *http.Request) {
+	file := r.URL.Query().Get("file")
+
+	if file == "" {
+		http.Error(w, "file missing, enter valid file name", http.StatusBadRequest)
+		return
+	}
+
+	err := os.Remove("./httpServer" + file)
+	if err != nil {
+		http.Error(w, "Error while deleting the file", http.StatusInternalServerError)
+		return
+	}
+
+	fmt.Fprintf(w, "%s deleted successfully", file)
+}
+
 func main() {
 	http.HandleFunc("/upload", uploadFile)
 	http.HandleFunc("/download", downloadFile)
+	http.HandleFunc("/", listAll)
+	http.HandleFunc("/delete", deleteFile)
 	fmt.Println("Running at http://localhost:8080")
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
