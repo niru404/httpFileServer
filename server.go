@@ -1,12 +1,14 @@
 package main
 
 import (
+	"encoding/base64"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 func uploadFile(w http.ResponseWriter, r *http.Request) {
@@ -87,8 +89,8 @@ func listAll(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintln(w, "<h2>available files are listed below</h2>")
 
 	for _, f := range file {
-	name := f.Name()
-	fmt.Fprintf(w, `<li><a href="/download?file=%s">%s</a></li>`, name, name)
+		name := f.Name()
+		fmt.Fprintf(w, `<li><a href="/download?file=%s">%s</a></li>`, name, name)
 	}
 
 	fmt.Fprintln(w, "</ul>")
@@ -101,8 +103,8 @@ func deleteFile(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "file missing, enter valid file name", http.StatusBadRequest)
 		return
 	}
-
-	err := os.Remove("./httpServer" + file)
+	safeFile := filepath.Base(file)
+	err := os.Remove("./httpServer" + safeFile)
 	if err != nil {
 		http.Error(w, "Error while deleting the file", http.StatusInternalServerError)
 		return
@@ -111,11 +113,45 @@ func deleteFile(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "%s deleted successfully", file)
 }
 
+const (
+	adminUser = "admin"
+	adminPass = "notRoot"
+)
+
+func basicAuth(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		auth := r.Header.Get("Authorization")
+		if auth == "" || !checkAuth(auth) {
+			w.Header().Set("WWW-Authenticate", `Basic realm="Restricted"`)
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		next(w, r)
+	}
+}
+
+func checkAuth(authHeader string) bool {
+	const prefix = "Basic "
+	if !strings.HasPrefix(authHeader, prefix) {
+		return false
+	}
+	payload, err := base64.StdEncoding.DecodeString(authHeader[len(prefix):])
+	if err != nil {
+		return false
+	}
+	parts := strings.SplitN(string(payload), ":", 2)
+	if len(parts) != 2 {
+		return false
+	}
+	user, pass := parts[0], parts[1]
+	return user == adminUser && pass == adminPass
+}
+
 func main() {
-	http.HandleFunc("/upload", uploadFile)
+	http.HandleFunc("/upload", basicAuth(uploadFile))
 	http.HandleFunc("/download", downloadFile)
 	http.HandleFunc("/", listAll)
-	http.HandleFunc("/delete", deleteFile)
+	http.HandleFunc("/delete", basicAuth(deleteFile))
 	fmt.Println("Running at http://localhost:8080")
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
